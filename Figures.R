@@ -17,6 +17,9 @@ fn.out=function(x) paste(out.path,x,sep='/')
 library(tidyverse)
 library(extrafont)
 library(Hmisc)
+library(ggpubr)
+library(dplyr, warn.conflicts = FALSE)
+options(dplyr.summarise.inform = FALSE)
 
 # install.packages("remotes")
 # remotes::install_github("davidsjoberg/ggsankey")
@@ -140,21 +143,23 @@ mytheme<-function(Ttl.siz=18,Sbt.siz=16,str.siz=12,strx.siz=12,cap.siz=10,
 }
 
 
-# ---------- Share of estimated emissions by Source and Industry -------------------------------------------
-Variables=c('intag_level2','intag_level1','ni_level1','ni_level2','gas')
-Variables.size=c(3,5,5,2,5) #size of inset percentage
-Variables.size1=c(8,10,10,8,10) #size of legend labels
+# ---------- Share of estimated emissions -------------------------------------------
+Variables=c('ni_level2','scope')
+Variables.size=c(3,4) #size of inset percentage
+Variables.size1=c(8,10) #size of legend labels
+Fig.title=c('Source and Industry_','Scope and Industry_')
 Scenarios=vec_scenario
-Years=vec_year
+Years=c(2035)
 share.estim.em=function(data,Variable,yr,Scen,Size,Size1)
 {
   d=data%>%
-    filter(year==yr & scenario==Scen)%>%
+    filter(year%in%yr & scenario==Scen)%>%
     filter(!intag_level2%in%c('Purchased feed (WA)','Purchased feed (imported)'))%>%
     group_by_at(vars(industry,Variable))%>% 
     summarise(Sum = sum(ghg)) %>% 
     mutate(perc =Sum/sum(Sum))%>%
     filter(round(100*perc)>0)
+  if(Variable=="scope")d$scope=paste('Scope',d$scope)
   p=d%>%
     mutate_at(vars(Variable), factor)%>%
     ggplot(aes_string(x='industry',y='perc', fill=Variable))+
@@ -166,8 +171,6 @@ share.estim.em=function(data,Variable,yr,Scen,Size,Size1)
     scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
     geom_text(aes(x=industry,y=perc,label=paste0(round(100*perc),'%')),
               stat='identity', position=position_stack(0.5),size=Size)
-
-  
   return(p)
 }
 for(i in 1:length(Variables))
@@ -182,36 +185,90 @@ for(i in 1:length(Variables))
                      Scen=Scenarios[s],
                      Size=Variables.size[i],
                      Size1=Variables.size1[i])
+      figure.title=Fig.title[i]
       xtnsion=paste(Variables[i],Years[y],Scenarios[s],sep='.')
-      ggsave(fn.out(paste0('Share of Estimated Emissions by Source and Industry_',xtnsion,'.tiff')), 
+      ggsave(fn.out(paste0('Share of Estimated Emissions by ',figure.title,xtnsion,'.tiff')), 
              width = 10,height = 6,compression = "lzw")
     }
   }
 }
 
-# ---------- Share of estimated emissions Scope and Industry  -------------------------------------------
-Variables=c('scope')
-Variables.size=4 #size of inset percentage
-Variables.size1=10
+# ---------- Estimated Total Emissions by Industry -------------------------------------------
+Variables=c('ni_level2','scope')
+Variables.size1=c(10,12) #size of legend labels
+Fig.title=c('Industry_','Scope_')
+Scenarios=vec_scenario
+Years=list(c(2020,2035),vec_year)
+
+estim.tot.em=function(data,Variable,yr,Scen,Size1)
+{
+  d=data%>%
+    filter(year%in%yr & scenario==Scen)%>%
+    filter(!intag_level2%in%c('Purchased feed (WA)','Purchased feed (imported)'))%>%
+    group_by_at(vars(year,Variable))%>% 
+    summarise(Sum = sum(ghg)/1e6)%>%
+    filter(Sum>0)
+  if(Variable=="scope")
+  {
+    d1=data%>%
+      filter(year%in%yr & scenario==Scen)%>%
+      filter(!intag_level2%in%c('Purchased feed (WA)','Purchased feed (imported)'))%>%
+      group_by_at(vars(year))%>% 
+      summarise(Total = sum(ghg)/1e6)%>%
+      filter(Total>0)
+    
+    p=d%>%
+      mutate(scope=paste('Scope',scope))%>%
+      left_join(d1,by='year')%>%
+      mutate(year=as.character(year))%>%
+      mutate_at(vars(Variable), factor)%>%
+      ggplot(aes_string(x='year',y='Sum', fill=Variable))+
+      geom_bar(stat="identity")+
+      mytheme(leg.siz=Size1,axs.t.siz=15)+xlab('')+ylab('MtCo2e')+
+      theme(legend.title = element_blank(),
+            legend.position = 'top',
+            axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+      geom_path(inherit.aes = FALSE,aes(x=year,y=Total,color='Total Emissions'),group=1,size=2)+
+      geom_point(inherit.aes = FALSE,aes(x=year,y=Total,color='Total Emissions'),size=3,stroke=2,
+                 fill='steelblue', shape=21)+
+      scale_color_manual(name="",values=c('Total Emissions'='black'))   
+  }else
+  {
+    p=d%>%
+      mutate(year=as.character(year))%>%
+      mutate_at(vars(Variable), factor)%>%
+      ggplot(aes_string(x='year',y='Sum', fill=Variable))+
+      geom_bar(stat="identity")+
+      mytheme(leg.siz=Size1,axs.t.siz=15)+xlab('')+ylab('MtCo2e')+
+      theme(legend.title = element_blank(),
+            legend.position = 'top',
+            axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+    
+  }
+  return(p)
+  
+}
 for(i in 1:length(Variables))
 {
   for(y in 1:length(Years))
   {
     for(s in 1:length(Scenarios))
     {
-      share.estim.em(data=Dat,
-                    Variable=Variables[i],
-                    yr=Years[y],
-                    Scen=Scenarios[s],
-                    Size=Variables.size[i],
-                    Size1=Variables.size1[i])
-      xtnsion=paste(Variables[i],Years[y],Scenarios[s],sep='.')
-      ggsave(fn.out(paste0('Share of Estimated Emissions by Scope and Industry_',xtnsion,'.tiff')), 
+      estim.tot.em(data=Dat,
+                   Variable=Variables[i],
+                   yr=Years[[y]],
+                   Scen=Scenarios[s],
+                   Size1=Variables.size1[i])
+      figure.title=Fig.title[i]
+      yrs=Years[[y]]
+      dumi=ifelse(length(yrs)==2,'and','to')
+      yrs=paste(yrs[1],dumi,yrs[length(yrs)])
+      xtnsion=paste(Variables[i],yrs,Scenarios[s],sep='.')
+      ggsave(fn.out(paste0('Estimated Total Emissions by ',figure.title,xtnsion,'.tiff')), 
              width = 10,height = 6,compression = "lzw")
     }
   }
 }
-
 
 # ---------- Sankey plots -------------------------------------------
 Sankey.plt=function(data)
