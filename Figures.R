@@ -18,6 +18,7 @@ library(tidyverse)
 library(extrafont)
 library(Hmisc)
 library(ggpubr)
+#library(theme.dpird)
 library(dplyr, warn.conflicts = FALSE)
 options(dplyr.summarise.inform = FALSE)
 
@@ -150,11 +151,16 @@ Variables.size1=c(8,10) #size of legend labels
 Fig.title=c('Source and Industry_','Scope and Industry_')
 Scenarios=vec_scenario
 Years=c(2035)
-share.estim.em=function(data,Variable,yr,Scen,Size,Size1)
+share.estim.em=function(data,Variable,yr,Scen,Size,Size1,drop.level=FALSE) 
 {
   d=data%>%
-    filter(year%in%yr & scenario==Scen)%>%
-    filter(!intag_level2%in%c('Purchased feed (WA)','Purchased feed (imported)'))%>%
+    filter(year%in%yr & scenario==Scen)
+  if(!isFALSE(drop.level))
+  {
+    d=d%>%filter(!intag_level2%in%drop.level)
+  }
+   
+  d=d%>%
     group_by_at(vars(industry,Variable))%>% 
     summarise(Sum = sum(ghg)) %>% 
     mutate(perc =Sum/sum(Sum))%>%
@@ -171,6 +177,15 @@ share.estim.em=function(data,Variable,yr,Scen,Size,Size1)
     scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
     geom_text(aes(x=industry,y=perc,label=paste0(round(100*perc),'%')),
               stat='identity', position=position_stack(0.5),size=Size)
+  
+  #Display legend levels >=5%
+  d1=d%>%filter(perc>=0.05)
+  g <- ggplot_build(p)
+  VALs=unique(g$data[[1]]["fill"]$fill)
+  names(VALs)=sort(unique(d%>%pull(Variable)))
+  p=p+scale_fill_manual(values=VALs,
+                      breaks=sort(unique(d1%>%pull(Variable))))
+  
   return(p)
 }
 for(i in 1:length(Variables))
@@ -184,7 +199,8 @@ for(i in 1:length(Variables))
                      yr=Years[y],
                      Scen=Scenarios[s],
                      Size=Variables.size[i],
-                     Size1=Variables.size1[i])
+                     Size1=Variables.size1[i],
+                     drop.level='Purchased feed (WA)')
       figure.title=Fig.title[i]
       xtnsion=paste(Variables[i],Years[y],Scenarios[s],sep='.')
       ggsave(fn.out(paste0('Share of Estimated Emissions by ',figure.title,xtnsion,'.tiff')), 
@@ -200,11 +216,15 @@ Fig.title=c('Industry_','Scope_')
 Scenarios=vec_scenario
 Years=list(c(2020,2035),vec_year)
 
-estim.tot.em=function(data,Variable,yr,Scen,Size1)
+estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE)
 {
   d=data%>%
-    filter(year%in%yr & scenario==Scen)%>%
-    filter(!intag_level2%in%c('Purchased feed (WA)','Purchased feed (imported)'))%>%
+    filter(year%in%yr & scenario==Scen)
+  if(!isFALSE(drop.level))
+  {
+    d=d%>%filter(!intag_level2%in%drop.level)
+  }
+  d=d%>%
     group_by_at(vars(year,Variable))%>% 
     summarise(Sum = sum(ghg)/1e6)%>%
     filter(Sum>0)
@@ -258,7 +278,8 @@ for(i in 1:length(Variables))
                    Variable=Variables[i],
                    yr=Years[[y]],
                    Scen=Scenarios[s],
-                   Size1=Variables.size1[i])
+                   Size1=Variables.size1[i],
+                   drop.level='Purchased feed (WA)')
       figure.title=Fig.title[i]
       yrs=Years[[y]]
       dumi=ifelse(length(yrs)==2,'and','to')
