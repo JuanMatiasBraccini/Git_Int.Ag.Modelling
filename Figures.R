@@ -178,7 +178,9 @@ share.estim.em=function(data,Variable,yr,Scen,Size,Size1,drop.level=FALSE)
     scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
     geom_text(aes(x=industry,y=perc,label=paste0(round(100*perc),'%')),
               stat='identity', position=position_stack(0.5),size=Size)
-    my.cols=Color.palette%>%filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))
+    my.cols=Color.palette%>%
+              filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))%>%
+              mutate(Colour=rgb(red, green, blue, maxColorValue = 255))
     my.cols1=my.cols$Colour
     names(my.cols1)=my.cols$Legend.Entry
     p=p+scale_fill_manual(values=my.cols1)
@@ -274,9 +276,12 @@ estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE)
     
   }
   
-  my.cols=Color.palette%>%filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))
+  my.cols=Color.palette%>%
+    filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))%>%
+    mutate(Colour=rgb(red, green, blue, maxColorValue = 255))
   my.cols1=my.cols$Colour
   names(my.cols1)=my.cols$Legend.Entry
+  
   p=p+scale_fill_manual(values=my.cols1)
   
   return(p)
