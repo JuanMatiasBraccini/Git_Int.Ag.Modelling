@@ -28,7 +28,8 @@ library(ggsankey)
 
 # ---------- Load data-------------------------------------------
 Dat=read.csv(fn.in('IntAg Modelling.csv'))
-
+Color.palette=read.csv(paste(mypath,'Color.palette.csv',sep='/'))
+  
 # ---------- Manipulate data-------------------------------------------
 #fix some colnames
 id=grep('ï..',names(Dat))
@@ -177,7 +178,12 @@ share.estim.em=function(data,Variable,yr,Scen,Size,Size1,drop.level=FALSE)
     scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
     geom_text(aes(x=industry,y=perc,label=paste0(round(100*perc),'%')),
               stat='identity', position=position_stack(0.5),size=Size)
-  
+    my.cols=Color.palette%>%filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))
+    my.cols1=my.cols$Colour
+    names(my.cols1)=my.cols$Legend.Entry
+    p=p+scale_fill_manual(values=my.cols1)
+    
+    
   #Display legend levels >=5%
   d1=d%>%filter(perc>=0.05)
   g <- ggplot_build(p)
@@ -201,6 +207,7 @@ for(i in 1:length(Variables))
                      Size=Variables.size[i],
                      Size1=Variables.size1[i],
                      drop.level='Purchased feed (WA)')
+      
       figure.title=Fig.title[i]
       xtnsion=paste(Variables[i],Years[y],Scenarios[s],sep='.')
       ggsave(fn.out(paste0('Share of Estimated Emissions by ',figure.title,xtnsion,'.tiff')), 
@@ -236,9 +243,10 @@ estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE)
       group_by_at(vars(year))%>% 
       summarise(Total = sum(ghg)/1e6)%>%
       filter(Total>0)
+    d=d%>%
+      mutate(scope=paste('Scope',scope))
     
     p=d%>%
-      mutate(scope=paste('Scope',scope))%>%
       left_join(d1,by='year')%>%
       mutate(year=as.character(year))%>%
       mutate_at(vars(Variable), factor)%>%
@@ -265,6 +273,12 @@ estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE)
             axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
     
   }
+  
+  my.cols=Color.palette%>%filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))
+  my.cols1=my.cols$Colour
+  names(my.cols1)=my.cols$Legend.Entry
+  p=p+scale_fill_manual(values=my.cols1)
+  
   return(p)
   
 }
@@ -280,6 +294,7 @@ for(i in 1:length(Variables))
                    Scen=Scenarios[s],
                    Size1=Variables.size1[i],
                    drop.level='Purchased feed (WA)')
+      
       figure.title=Fig.title[i]
       yrs=Years[[y]]
       dumi=ifelse(length(yrs)==2,'and','to')
