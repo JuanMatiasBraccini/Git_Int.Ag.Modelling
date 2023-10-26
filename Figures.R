@@ -18,7 +18,7 @@ library(tidyverse)
 library(extrafont)
 library(Hmisc)
 library(ggpubr)
-#library(theme.dpird)
+library(ggrepel)
 library(dplyr, warn.conflicts = FALSE)
 options(dplyr.summarise.inform = FALSE)
 
@@ -28,6 +28,8 @@ library(ggsankey)
 
 # ---------- Load data-------------------------------------------
 Dat=read.csv(fn.in('IntAg Modelling.csv'))
+gvp=read.csv(fn.in('gvp.csv'))
+deltas=read.csv(fn.in('deltas.csv'))
 Color.palette=read.csv(paste(mypath,'Color.palette.csv',sep='/'))
   
 # ---------- Manipulate data-------------------------------------------
@@ -219,13 +221,13 @@ for(i in 1:length(Variables))
 }
 
 # ---------- Estimated Total Emissions by Industry -------------------------------------------
-Variables=c('ni_level2','scope')
-Variables.size1=c(10,12) #size of legend labels
-Fig.title=c('Industry_','Scope_')
+Variables=c('ni_level2','scope','ni_level2.horizontal')
+Variables.size1=c(10,12,10) #size of legend labels
+Fig.title=c('Industry_','Scope_','Industry_')
 Scenarios=vec_scenario
 Years=list(c(2020,2035),vec_year)
 
-estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE)
+estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE,horiz=FALSE)
 {
   d=data%>%
     filter(year%in%yr & scenario==Scen)
@@ -284,6 +286,7 @@ estim.tot.em=function(data,Variable,yr,Scen,Size1,drop.level=FALSE)
   
   p=p+scale_fill_manual(values=my.cols1)
   
+  if(horiz) p=p+coord_flip()
   return(p)
   
 }
@@ -293,20 +296,125 @@ for(i in 1:length(Variables))
   {
     for(s in 1:length(Scenarios))
     {
+      Var=Variables[i]
+      HOR=FALSE
+      if(grepl('horizontal',Var))
+      {
+        HOR=TRUE
+        Var=gsub("\\..*", "", Var)
+      }
+        
       estim.tot.em(data=Dat,
-                   Variable=Variables[i],
+                   Variable=Var,
                    yr=Years[[y]],
                    Scen=Scenarios[s],
                    Size1=Variables.size1[i],
-                   drop.level='Purchased feed (WA)')
+                   drop.level='Purchased feed (WA)',
+                   horiz=HOR)
       
       figure.title=Fig.title[i]
       yrs=Years[[y]]
       dumi=ifelse(length(yrs)==2,'and','to')
       yrs=paste(yrs[1],dumi,yrs[length(yrs)])
       xtnsion=paste(Variables[i],yrs,Scenarios[s],sep='.')
+      WIDTH=10
+      if(length(Years[[y]])<=4)  WIDTH=7.5
       ggsave(fn.out(paste0('Estimated Total Emissions by ',figure.title,xtnsion,'.tiff')), 
-             width = 10,height = 6,compression = "lzw")
+             width = WIDTH,height = 6,compression = "lzw")
+    }
+  }
+}
+
+# ---------- GHG emissions - WA agriculture Industry -------------------------------------------
+Variables=c('ni_level2')
+Variables.size1=c(10) #size of legend labels
+intag_level1.list=list(c('Ag emissions','External'),'Ag emissions')
+Scenarios="sc1"
+Years=list(2020)
+
+GHG.emissions.donut=function(data,Variable,yr,Scen,Size1,drop.level=FALSE,intag1,TITLE,Bx.pad,Nudg)  
+{
+  d=data%>%
+    filter(year%in%yr & scenario==Scen)%>%
+    filter(ghg>0)%>%
+    filter(intag_level1%in%intag1)
+  if(!isFALSE(drop.level))
+  {
+    d=d%>%filter(!intag_level2%in%drop.level)
+  }
+  d=d%>%
+    group_by_at(vars(year,Variable))%>% 
+    summarise(Sum = sum(ghg)/1e6)%>%
+    filter(Sum>0)%>%
+    mutate(year=as.character(year))%>%
+    mutate(fraction = Sum / sum(Sum),  # Compute percentages
+           ymax = cumsum(fraction),# Compute the cumulative percentages (top of each rectangle)
+           ymin = c(0,lag(ymax,1)[-1]), # Compute the bottom of each rectangle
+           labelPosition = (ymax + ymin) / 2,   # Compute label position
+           label=!!sym(Variable),
+           label=ifelse(nchar(label)>15,sub(" ", "\n", label),label),
+           label = paste0(label,"\n", '(',round(100*fraction,1),'%)'))# Compute nice label
+  
+  Xmin=1
+  Xmax=2
+  p=ggplot(d, aes_string(ymin='ymin', ymax='ymax', xmin=Xmin, xmax=Xmax, fill=Variable)) +
+    geom_rect()+
+    coord_polar(theta="y")+
+    theme_void() +
+    xlim(c(-Xmin, Xmax))+
+    theme(legend.position = "none")+
+    geom_text_repel(aes(label=label, x=Xmax, y=labelPosition),force=1,
+                    arrow=arrow(angle=0),seed=666,color = "black",
+                    size = 5, nudge_x = Nudg,
+                    box.padding = Bx.pad,min.segment.length=0)+
+    annotate(geom = 'text', x = -1, y = 0.5, label = TITLE,size=7,hjust = 0.5)
+  
+  my.cols=Color.palette%>%
+    filter(Legend.Entry%in%unique(d%>%pull((!!sym(Variable)))))%>%
+    mutate(Colour=rgb(red, green, blue, maxColorValue = 255))
+  my.cols1=my.cols$Colour
+  names(my.cols1)=my.cols$Legend.Entry
+  
+  p=p+scale_fill_manual(values=my.cols1)
+  
+  return(p)
+  
+}
+for(i in 1:length(Variables))
+{
+  for(y in 1:length(Years))
+  {
+    for(s in 1:length(Scenarios))
+    {
+      for(l in 1:length(intag_level1.list))
+      {
+        GHG.emissions.donut(data=Dat,
+                            Variable=Variables[i],
+                            yr=Years[[y]],
+                            Scen=Scenarios[s],
+                            Size1=Variables.size1[i],
+                            drop.level='Purchased feed (WA)',
+                            intag1=intag_level1.list[[l]],
+                            TITLE=paste0('GHG emissions -','\n','WA agriculture','\n','Industry',
+                                        ' (',unlist(Years[[y]]),')'),
+                            Bx.pad=1,
+                            Nudg=0.1)
+        
+        figure.title='GHG emissions - WA agriculture Industry_'
+        yrs=Years[[y]]
+        if(length(yrs)>1)
+        {
+          dumi=ifelse(length(yrs)==2,'and','to')
+          yrs=paste(yrs[1],dumi,yrs[length(yrs)])
+        }
+        intg1=intag_level1.list[[l]]
+        if(length(intg1)>1) intg1=paste(intg1,collapse=' and ')
+        xtnsion=paste(Variables[i],yrs,Scenarios[s],intg1,sep='.')
+        WIDTH=10
+        if(length(Years[[y]])<=4)  WIDTH=7.5
+        ggsave(fn.out(paste0(figure.title,xtnsion,'.tiff')), 
+               width = WIDTH,height = 6,compression = "lzw")
+      }
     }
   }
 }
