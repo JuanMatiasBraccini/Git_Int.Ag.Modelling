@@ -328,16 +328,19 @@ for(i in 1:length(Variables))
 # ---------- GHG emissions - WA agriculture Industry -------------------------------------------
 Variables=c('ni_level2')
 Variables.size1=c(10) #size of legend labels
-intag_level1.list=list(c('Ag emissions','External'),'Ag emissions')
+intag_level1.list=list(All.intag_level1=unique(Dat$intag_level1),Ag.emissions='Ag emissions')
 Scenarios="sc1"
 Years=list(2020)
+Industries=list(All.industries=unique(Dat$industry),Beef="Beef",Sheep="Sheep",Dairy="Dairy",Pork="Pork",
+                Chicken="Chicken",Eggs="Eggs",Horticulture="Horticulture",Grain="Grain")
 
-GHG.emissions.donut=function(data,Variable,yr,Scen,Size1,drop.level=FALSE,intag1,TITLE,Bx.pad,Nudg)  
+GHG.emissions.donut=function(data,Variable,yr,Scen,Ind,drop.level,intag1,TITLE,Bx.pad,Nudg)  
 {
   d=data%>%
-    filter(year%in%yr & scenario==Scen)%>%
+    filter(year%in%yr & scenario==Scen & industry%in%Ind)%>%
     filter(ghg>0)%>%
     filter(intag_level1%in%intag1)
+  Lvls=unique(d[,match(Variable,names(d))])
   if(!isFALSE(drop.level))
   {
     d=d%>%filter(!intag_level2%in%drop.level)
@@ -346,27 +349,38 @@ GHG.emissions.donut=function(data,Variable,yr,Scen,Size1,drop.level=FALSE,intag1
     group_by_at(vars(year,Variable))%>% 
     summarise(Sum = sum(ghg)/1e6)%>%
     filter(Sum>0)%>%
+    data.frame()
+  iid=match(Variable,names(d))
+  d[,iid]=factor(d[,iid],levels=Lvls)
+  d=d[rev(order(d[,iid])),]
+  
+  d=d%>%
     mutate(year=as.character(year))%>%
-    mutate(fraction = Sum / sum(Sum),  # Compute percentages
-           ymax = cumsum(fraction),# Compute the cumulative percentages (top of each rectangle)
-           ymin = c(0,lag(ymax,1)[-1]), # Compute the bottom of each rectangle
-           labelPosition = (ymax + ymin) / 2,   # Compute label position
-           label=!!sym(Variable),
-           label=ifelse(nchar(label)>15,sub(" ", "\n", label),label),
-           label = paste0(label,"\n", '(',round(100*fraction,1),'%)'))# Compute nice label
+    mutate(
+      fraction = Sum / sum(Sum),  # Compute percentages
+      ymax = cumsum(Sum),# Compute the cumulative percentages (top of each rectangle)
+      ymin = c(0,lag(ymax,1)[-1]), # Compute the bottom of each rectangle
+      labelPosition = (ymax + ymin) / 2,   # Compute label position
+      label=as.character(!!sym(Variable)),
+      label=ifelse(nchar(label)>15,sub(" ", "\n", label),label),
+      label = paste0(label,"\n", '(',round(100*fraction,1),'%)'))# Compute nice label
   
   Xmin=1
   Xmax=2
-  p=ggplot(d, aes_string(ymin='ymin', ymax='ymax', xmin=Xmin, xmax=Xmax, fill=Variable)) +
-    geom_rect()+
+  
+  p=d%>%
+    ggplot(aes_string(x=1, y="Sum",fill = Variable))+
+    geom_bar(width = 1, stat = "identity")+
     coord_polar(theta="y")+
     theme_void() +
     xlim(c(-Xmin, Xmax))+
     theme(legend.position = "none")+
-    geom_text_repel(aes(label=label, x=Xmax, y=labelPosition),force=1,
+    geom_text_repel(aes(label=label, x=1, y=labelPosition),force=1,
                     arrow=arrow(angle=0),seed=666,color = "black",
                     size = 5, nudge_x = Nudg,
-                    box.padding = Bx.pad,min.segment.length=0)+
+                    box.padding = Bx.pad,
+                    max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                    min.segment.length=0)+
     annotate(geom = 'text', x = -1, y = 0.5, label = TITLE,size=7,hjust = 0.5)
   
   my.cols=Color.palette%>%
@@ -380,42 +394,46 @@ GHG.emissions.donut=function(data,Variable,yr,Scen,Size1,drop.level=FALSE,intag1
   return(p)
   
 }
-for(i in 1:length(Variables))
+for(v in 1:length(Variables))
 {
   for(y in 1:length(Years))
   {
-    for(s in 1:length(Scenarios))
+    for(i in 1:length(Industries))
     {
-      for(l in 1:length(intag_level1.list))
+      DRP.LVL=FALSE
+      if(names(Industries)[i]=='All.industries') DRP.LVL='Purchased feed (WA)'
+      
+      for(s in 1:length(Scenarios))
       {
-        GHG.emissions.donut(data=Dat,
-                            Variable=Variables[i],
-                            yr=Years[[y]],
-                            Scen=Scenarios[s],
-                            Size1=Variables.size1[i],
-                            drop.level='Purchased feed (WA)',
-                            intag1=intag_level1.list[[l]],
-                            TITLE=paste0('GHG emissions -','\n','WA agriculture','\n','Industry',
-                                        ' (',unlist(Years[[y]]),')'),
-                            Bx.pad=1,
-                            Nudg=0.1)
-        
-        figure.title='GHG emissions - WA agriculture Industry_'
-        yrs=Years[[y]]
-        if(length(yrs)>1)
+        for(l in 1:length(intag_level1.list))
         {
-          dumi=ifelse(length(yrs)==2,'and','to')
-          yrs=paste(yrs[1],dumi,yrs[length(yrs)])
+           GHG.emissions.donut(data=Dat,
+                              Variable=Variables[v],
+                              yr=Years[[y]],
+                              Scen=Scenarios[s],
+                              Ind=Industries[[i]],
+                              drop.level=DRP.LVL,
+                              intag1=intag_level1.list[[l]],
+                              TITLE=paste0('GHG emissions -','\n','WA agriculture','\n','Industry',
+                                           ' (',unlist(Years[[y]]),')'),
+                              Bx.pad=1.5,
+                              Nudg=0.2)
+          
+          figure.title='GHG emissions - WA agriculture Industry_'
+          yrs=Years[[y]]
+          if(length(yrs)>1)
+          {
+            dumi=ifelse(length(yrs)==2,'and','to')
+            yrs=paste(yrs[1],dumi,yrs[length(yrs)])
+          }
+          xtnsion=paste(Variables[v],yrs,names(Industries)[i],Scenarios[s],names(intag_level1.list)[l],sep='.')
+          WIDTH=10
+          if(length(Years[[y]])<=4)  WIDTH=7.5
+          ggsave(fn.out(paste0(figure.title,xtnsion,'.tiff')),width = WIDTH,height = 6,compression = "lzw")
         }
-        intg1=intag_level1.list[[l]]
-        if(length(intg1)>1) intg1=paste(intg1,collapse=' and ')
-        xtnsion=paste(Variables[i],yrs,Scenarios[s],intg1,sep='.')
-        WIDTH=10
-        if(length(Years[[y]])<=4)  WIDTH=7.5
-        ggsave(fn.out(paste0(figure.title,xtnsion,'.tiff')), 
-               width = WIDTH,height = 6,compression = "lzw")
       }
     }
+
   }
 }
 
